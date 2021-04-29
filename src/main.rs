@@ -9,11 +9,13 @@ use ggez::event::{KeyCode, KeyMods};
 use std::env;
 use std::path;
 use rand::*;
+use std::fmt::{Display, Formatter, Result as fResult, Debug};
 
 const MIN_NUM: i32 = 1;
 const MAX_NUM: i32 = 100;
 const MAX_LEN: usize = 3;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Formats {
     title_size: f32,
     margin: f32,
@@ -21,12 +23,14 @@ pub struct Formats {
     font: graphics::Font
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     NewGame,
     Guessing,
     Win,
 }
 
+#[derive(Clone, Debug)]
 struct GameState {
     frames: usize,
     title: graphics::Text,
@@ -86,8 +90,14 @@ impl Keypress {
     }
 }
 
+impl Display for Keypress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fResult {
+        write!(f, "{}", self)
+    }
+}
+
 impl Formats {
-    pub fn new(ctx: &'static mut Context) -> Result<Formats, GameError> {
+    pub fn new(ctx: &mut Context) -> Result<Formats, GameError> {
 
         Ok(
             Formats {
@@ -101,48 +111,61 @@ impl Formats {
     }
 }
 
+impl Display for State {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fResult {
+        write!(f, "{}", self)
+    }
+}
+
+impl Display for GameState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fResult {
+        write!(f, "State: {}", self.state)
+    }
+}
+
 impl GameState {
-    pub fn new(&self, ctx: &'static mut Context) -> GameResult<GameState> {
-
-        let formatting = Formats::new(ctx).unwrap();
-        let title = self.textify("Guess the number!".to_string(), self.formatting.font, self.formatting.title_size);
-        let output = self.textify("Ready? (Press Return to start)".to_string(), self.formatting.font, self.formatting.text_size);
-
-        let guess = String::from("");
-        let secret_number = rand::thread_rng().gen_range(MIN_NUM, MAX_NUM+1);
-        let guess_count = 0;
-        let state = State::NewGame;
-
+    pub fn new(ctx: &mut Context) -> GameResult<GameState> {
         let s = GameState {
             frames: 0,
-            title,
-            output,
-            secret_number,
-            guess,
+            title: graphics::Text::default(),
+            output: graphics::Text::default(),
+            secret_number: rand::thread_rng().gen_range(MIN_NUM, MAX_NUM+1),
+            guess: String::from(""),
             negative: false,
-            guess_count,
-            state,
-            formatting,
+            guess_count: 0,
+            state: State::NewGame,
+            formatting: Formats::new(ctx).unwrap(),
         };
-
         Ok(s)
     }
 
-    fn textify(&self, some_text: String, font: graphics::Font, size: f32) -> graphics::Text {
-        graphics::Text::new((some_text, self.formatting.font, self.formatting.title_size))
+    // Set the default output for a new game
+    pub fn main_menu(&mut self) {
+        self.title = self.textify("Guess the number!".to_string(), self.formatting.font, self.formatting.title_size);
+        self.output = self.textify("Ready? (Press Return to start)".to_string(), self.formatting.font, self.formatting.text_size);
     }
 
-    fn new_state(&mut self, some_state: Option<State>) -> Option<State> {
+    // Gets a text from a string using the given font and size
+    fn textify(&self, some_text: String, font: graphics::Font, size: f32) -> graphics::Text {
+        graphics::Text::new((some_text, font, size))
+    }
+
+    // Call this to change the game state
+    fn new_state(&mut self, some_state: State) -> State {
 
         match some_state {
-            Some(State::Guessing) => {
-                self.guess = String::from("0");
+            State::Guessing => {
+                let guess = "0";
+                self.guess = String::from(guess);
                 self.negative = false;
-                self.output = self.textify(self.guess, self.formatting.font, self.formatting.text_size);
+                self.output = self.textify(String::from(guess), self.formatting.font, self.formatting.text_size);
             }
-            Some(State::Win) => {
+            State::Win => {
                 self.title = self.textify(format!("The number was {}.", self.secret_number), self.formatting.font, self.formatting.title_size);
                 self.output = self.textify(format!("You won in {} guesses!", self.guess_count), self.formatting.font, self.formatting.text_size);
+            }
+            State::NewGame => {
+                self.main_menu();
             }
             _ => {}
         }
@@ -159,10 +182,18 @@ impl GameState {
 
         guess_as_int == self.secret_number
     }
+
 }
 
 impl event::EventHandler for GameState {
     fn update(&mut self, _ctx: &mut Context) -> GameResult {
+
+        match self.state {
+            State::NewGame => self.main_menu(),
+            State::Guessing => self.output = self.textify(self.guess.clone(), self.formatting.font , self.formatting.text_size),
+            _ => {}
+        }
+
         Ok(())
     }
 
@@ -174,12 +205,12 @@ impl event::EventHandler for GameState {
         graphics::draw(ctx, &self.title, (title_point, ))?;
 
         graphics::draw(ctx, &self.output, (guess_point, ))?;
-
         graphics::present(ctx)?;
 
         self.frames += 1;
         if (self.frames % 100) == 0 {
             println!("FPS: {}", ggez::timer::fps(ctx));
+            dbg!(self.state);
         }
         Ok(())
     }
@@ -191,59 +222,68 @@ impl event::EventHandler for GameState {
         _keymod: KeyMods,
         _repeat: bool,
     ) {
+        println!("key_down_event: {:?}", keycode);
 
         // Helper function to stick a character on a string provided the value is not bigger than max
-        fn push_char<'a>(key: char, mut guess: &'a mut String) -> &'a mut String {
-
-            if guess.chars().count() >= MAX_LEN {
-                return guess;
+        // Replaces leading zeros too
+        pub fn push_char( key: char, game: &mut GameState) {
+            if game.guess.chars().count() >= MAX_LEN {
+                return
             }
-            guess.push(key);
-            guess
+            game.guess.push(key);
+            game.guess = game.guess.clone().parse::<u32>().unwrap().to_string();
         }
 
-        let mut guess = &mut self.guess;
         match Keypress::from_keycode(keycode) {
             Some(Keypress::Esc) => {
                 println!("Thanks for playing!");
                 exit(0)
             }
             Some(Keypress::Undo) => {
-                guess.pop();
+                self.guess.pop();
             }
             Some(Keypress::Ret) => {
-                if self.state == State::Guessing {
-                    check_guess(&guess);
-                } else if self.correct_guess() {
-                    self.new_state(Some(State::Win));
-                } else {
-                    self.new_state(Some(State::Guessing));
+                match self.state {
+                    State::Guessing => {
+                        check_guess(&self.guess);
+                    }
+                    State::NewGame => {
+                        self.state = self.new_state(State::Guessing); }
+                    State::Win => {
+                        self.state = self.new_state(State::NewGame);
+                        self.state = self.new_state(State::Guessing);
+                    }
                 }
             }
             Some(Keypress::Negative) => {
                 self.negative = true;
             }
-            Some(Keypress::Zero) => { guess = push_char('0', guess);}
-            Some(Keypress::One) => { guess = push_char('1', guess);}
-            Some(Keypress::Two) => { guess = push_char('2', guess);}
-            Some(Keypress::Three) => { guess = push_char('3', guess);}
-            Some(Keypress::Four) => { guess = push_char('4', guess);}
-            Some(Keypress::Five) => { guess = push_char('5', guess);}
-            Some(Keypress::Six) => { guess = push_char('6', guess);}
-            Some(Keypress::Seven) => { guess = push_char('7', guess);}
-            Some(Keypress::Eight) => { guess = push_char('8', guess);}
-            Some(Keypress::Nine) => { guess = push_char('9', guess); }
+            Some(Keypress::Zero) => push_char('0', self),
+            Some(Keypress::One) => push_char('1', self),
+            Some(Keypress::Two) => push_char('2', self),
+            Some(Keypress::Three) => push_char('3', self),
+            Some(Keypress::Four) => push_char('4', self),
+            Some(Keypress::Five) => push_char('5', self),
+            Some(Keypress::Six) => push_char('6', self),
+            Some(Keypress::Seven) => push_char('7',  self),
+            Some(Keypress::Eight) => push_char('8',  self),
+            Some(Keypress::Nine) => push_char('9',  self),
             _ => {}
         }
-        self.guess = if self.state == State::Guessing {(*guess.clone()).parse().unwrap()} else {"0"};
+
+        self.guess = match self.state {
+            State::Guessing => (self.guess.clone()).parse().unwrap(),
+            _ => String::from("0"),
+        };
     }
 }
 
+// Shoves a minus on the front of the number
 fn guess_string_compiler(value: &String, is_negative: bool) -> String {
-    let mut r_val = if is_negative {"-"} else {""}
+    let mut return_val = if is_negative {"-"} else {""}
         .to_string();
-    r_val.push_str(value);
-    r_val
+    return_val.push_str(value);
+    return_val
 }
 
 pub fn check_guess(guess: &String) {
@@ -297,7 +337,8 @@ pub fn main() -> GameResult {
             .title("A Rustically Guessing Game!"))
         .build()?;
 
-    let state = GameState::new(&mut ctx)?;
+    let mut state = GameState::new(&mut ctx)?;
+    state.new_state(State::NewGame);
 
     ggez::event::run(ctx, events_loop, state);
 }
