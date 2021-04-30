@@ -30,11 +30,16 @@ enum State {
     Win,
 }
 
+struct GameText {
+    title: graphics::Text,
+    output: graphics::Text,
+    err: graphics::Text,
+}
+
 #[derive(Clone, Debug)]
 struct GameState {
     frames: usize,
-    title: graphics::Text,
-    output: graphics::Text,
+    text: GameText,
     guess: String,
     negative: bool,
     secret_number: i32,
@@ -123,6 +128,12 @@ impl Display for GameState {
     }
 }
 
+impl Display for GameText {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "Title: {}\n"), self.title)
+    }
+}
+
 impl GameState {
     pub fn new(ctx: &mut Context) -> GameResult<GameState> {
         let s = GameState {
@@ -159,6 +170,7 @@ impl GameState {
                 self.guess = String::from(guess);
                 self.negative = false;
                 self.output = self.textify(String::from(guess), self.formatting.font, self.formatting.text_size);
+                self.title = self.textify("Type your guess below!".to_string(), self.formatting.font, self.formatting.title_size);
             }
             State::Win => {
                 self.title = self.textify(format!("The number was {}.", self.secret_number), self.formatting.font, self.formatting.title_size);
@@ -183,6 +195,14 @@ impl GameState {
         guess_as_int == self.secret_number
     }
 
+    pub fn check_guess(&mut self) {
+        self.title = self.textify(
+            format!("You guessed {}, try again!", guess_string_compiler(
+                &self.guess, self.negative)),
+            self.formatting.font,
+            self.formatting.title_size
+        );
+    }
 }
 
 impl event::EventHandler for GameState {
@@ -190,7 +210,9 @@ impl event::EventHandler for GameState {
 
         match self.state {
             State::NewGame => self.main_menu(),
-            State::Guessing => self.output = self.textify(self.guess.clone(), self.formatting.font , self.formatting.text_size),
+            State::Guessing => {
+                self.output = self.textify(guess_string_compiler(&self.guess, self.negative), self.formatting.font , self.formatting.text_size);
+            },
             _ => {}
         }
 
@@ -227,7 +249,13 @@ impl event::EventHandler for GameState {
         // Helper function to stick a character on a string provided the value is not bigger than max
         // Replaces leading zeros too
         pub fn push_char( key: char, game: &mut GameState) {
-            if game.guess.chars().count() >= MAX_LEN {
+            let guess_val = guess_string_compiler(
+                &format!("{}{}", &game.guess.clone(), key)
+                , game.negative).parse::<i32>().unwrap();
+            println!("{}", guess_val);
+            if game.guess.chars().count() >= MAX_LEN ||
+                guess_val < MIN_NUM || guess_val > MAX_NUM
+                {
                 return
             }
             game.guess.push(key);
@@ -245,7 +273,9 @@ impl event::EventHandler for GameState {
             Some(Keypress::Ret) => {
                 match self.state {
                     State::Guessing => {
-                        check_guess(&self.guess);
+                        self.check_guess();
+                        self.guess = "0".to_string();
+                        self.negative = false;
                     }
                     State::NewGame => {
                         self.state = self.new_state(State::Guessing); }
@@ -256,7 +286,7 @@ impl event::EventHandler for GameState {
                 }
             }
             Some(Keypress::Negative) => {
-                self.negative = true;
+                self.negative = !self.negative;
             }
             Some(Keypress::Zero) => push_char('0', self),
             Some(Keypress::One) => push_char('1', self),
@@ -284,10 +314,6 @@ fn guess_string_compiler(value: &String, is_negative: bool) -> String {
         .to_string();
     return_val.push_str(value);
     return_val
-}
-
-pub fn check_guess(guess: &String) {
-    println!("You have guessed {}", *guess);
 }
 
 pub fn main() -> GameResult {
