@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use ggez;
 use glam; // Requires feature "mint"
 
@@ -268,8 +269,8 @@ impl event::EventHandler for GameState {
         graphics::clear(ctx, BG.into());
 
         let title_point = glam::Vec2::new(self.formatting.left_gutter, 0.0);
-        let guess_point = glam::Vec2::new(self.formatting.left_gutter, (self.formatting.title_size + self.formatting.margin));
-        let err_point = glam::Vec2::new(self.formatting.left_gutter, (self.formatting.title_size + (self.formatting.margin * 2.0) + self.formatting.text_size));
+        let guess_point = glam::Vec2::new(self.formatting.left_gutter, self.formatting.title_size + self.formatting.margin);
+        let err_point = glam::Vec2::new(self.formatting.left_gutter, self.formatting.title_size + (self.formatting.margin * 2.0) + self.formatting.text_size);
 
         graphics::draw(ctx, &self.text.title, (title_point, ))?;
         graphics::draw(ctx, &self.text.output, (guess_point, ))?;
@@ -278,11 +279,6 @@ impl event::EventHandler for GameState {
         graphics::present(ctx)?;
 
         self.frames += 1;
-        if (self.frames % 100) == 0 {
-            println!("FPS: {}", ggez::timer::fps(ctx));
-            dbg!(self.state);
-            dbg!(self.secret_number);
-        }
         Ok(())
     }
 
@@ -293,11 +289,9 @@ impl event::EventHandler for GameState {
         _keymod: KeyMods,
         _repeat: bool,
     ) {
-        println!("key_down_event: {:?}", keycode);
-
         // Helper function to stick a character on a string provided the value is not bigger than max
         // Replaces leading zeros too
-        pub fn push_char( key: char, game: &mut GameState) {
+        fn push_char( key: char, game: &mut GameState) {
 
             let guess_val = guess_string_compiler(
                 &format!("{}{}", &game.guess.clone(), key)
@@ -382,36 +376,6 @@ pub fn main() -> GameResult {
     } else {
         path::PathBuf::from("./resources")
     };
-
-    let mut num_guesses = 0u32;
-
-    /*loop {
-        println!("Please input your guess.");
-
-        let mut guess = String::new();
-
-        io::stdin()
-            .read_line(&mut guess)
-            .expect("Failed to read line");
-
-        let guess: u32 = match guess.trim().parse() {
-            Ok(num) => num,
-            Err(_) => continue,
-        };
-
-        num_guesses += 1;
-
-        match guess.cmp(&secret_number) {
-            Ordering::Less => println!("Too small!"),
-            Ordering::Greater => println!("Too big!"),
-            Ordering::Equal => {
-                println!("Correct!");
-                println!("You won in {} guesses!", num_guesses);
-                break;
-            }
-        }
-    }*/
-
 
     let (mut ctx, events_loop) = ggez::ContextBuilder::new("guessing_game", "XcaliberRage")
         .add_resource_path(resource_dir)
