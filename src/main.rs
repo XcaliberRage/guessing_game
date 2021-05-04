@@ -1,8 +1,6 @@
-#![windows_subsystem = "windows"]
 use ggez;
 use glam; // Requires feature "mint"
 
-use ggez::conf::{Conf, WindowSetup};
 use std::process::exit;
 use ggez::{event, graphics, Context, GameResult, GameError};
 use ggez::graphics::Color as Colour;
