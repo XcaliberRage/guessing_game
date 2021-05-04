@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 use ggez;
 use glam; // Requires feature "mint"
 
@@ -25,9 +26,11 @@ pub struct Formats {
     title_size: f32,
     margin: f32,
     text_size: f32,
+    text_lines_ct: f32,
     err_size: f32,
     font: graphics::Font,
     left_gutter: f32,
+    text_block_size: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +46,9 @@ struct GameText {
     title: graphics::Text,
     output: graphics::Text,
     err: graphics::Text,
+    title_content: String,
+    output_content: String,
+    err_content: String,
 }
 
 
@@ -81,6 +87,7 @@ enum Keypress {
     Nine,
     Undo,
     Negative,
+    Tab,
 }
 
 impl Keypress {
@@ -100,6 +107,7 @@ impl Keypress {
             KeyCode::Key8 => Some(Keypress::Eight),
             KeyCode::Key9 => Some(Keypress::Nine),
             KeyCode::Minus => Some(Keypress::Negative),
+            KeyCode::Tab => Some(Keypress::Tab),
             _ => None,
         }
     }
@@ -119,9 +127,11 @@ impl Formats {
                 title_size: 48.0,
                 margin: 12.0,
                 text_size: 24.0,
+                text_lines_ct: 1.0,
                 err_size: 12.0,
                 font: graphics::Font::new(ctx, "/LiberationMono-Regular.ttf")?,
                 left_gutter: 10.0,
+                text_block_size: 24.0,
             })
 
 
@@ -150,6 +160,9 @@ impl GameText {
             title: graphics::Text::default(),
             output: graphics::Text::default(),
             err: graphics::Text::default(),
+            title_content: "".to_string(),
+            output_content: "".to_string(),
+            err_content: "".to_string(),
         }
     }
 }
@@ -176,10 +189,32 @@ impl GameState {
 
     // Set the default output for a new game
     pub fn main_menu(&mut self) {
-        self.text.title = self.textify("Guess the number!".to_string(), self.formatting.font, self.formatting.title_size);
-        self.text.output = self.textify("Ready? (Press Return to start)".to_string(), self.formatting.font, self.formatting.text_size);
-        self.text.err = self.textify("Press Esc to quit".to_string(), self.formatting.font, self.formatting.err_size);
+        self.text.title_content = "Guess the number!".to_string();
+        self.text.output_content = "Ready? (Press Return to start)".to_string();
+        self.text.err_content = "Press Esc to quit (Tab to change settings)".to_string();
+        self.formatting.text_size = 24.0;
         self.reset_guesses();
+        self.make_text();
+    }
+
+    pub fn settings_menu(&mut self) {
+        self.text.title_content = "Settings >>".to_string();
+        self.text.output_content = format!(
+            "MI[N]       = {}    <<< Minimum value the number can be.\n\
+        MA[X]       = {}    <<< Maximum value the number can be.\n\
+        LEN         = {}    <<< Maximum number of digits the number can include.\n\
+        RANGE       = {}    <<< Range between largest and lowest possible value.\n\
+        DIFFICULTY  = {}",
+                                           self.difficulty.min,
+                                           self.difficulty.max-1,
+                                           self.difficulty.len,
+                                           self.difficulty.max - self.difficulty.min,
+                                           "Easy"
+        );
+        self.formatting.text_lines_ct = 5.0;
+        self.formatting.text_size = 16.0;
+        self.text.err_content = format!("Press ESC to quit. press TAB to return to main menu.");
+        self.make_text();
     }
 
     pub fn reset_guesses(&mut self) {
@@ -191,6 +226,14 @@ impl GameState {
     // Gets a text from a string using the given font and size
     fn textify(&self, some_text: String, font: graphics::Font, size: f32) -> graphics::Text {
         graphics::Text::new((some_text, font, size))
+    }
+
+    // Uses textifx to make graphical text of the text content and format it for display
+    fn make_text(&mut self) {
+        let font = self.formatting.font;
+        self.text.title = self.textify(self.text.title_content.clone(), font, self.formatting.title_size);
+        self.text.output = self.textify(self.text.output_content.clone(), font, self.formatting.text_size);
+        self.text.err = self.textify(self.text.err_content.clone(), font, self.formatting.err_size);
     }
 
     // Call this to change the game state
@@ -206,11 +249,16 @@ impl GameState {
             }
             State::Win => {
                 self.text.title = self.textify(format!("The number was {}.", self.secret_number), self.formatting.font, self.formatting.title_size);
-                self.text.output = self.textify(format!("You won in {} guesses! Press Return to go back to the main menu", self.guess_count), self.formatting.font, self.formatting.text_size);
+                self.text.output = self.textify(format!("You won in {} guesses.\nPress Return to go back to the main menu", self.guess_count), self.formatting.font, self.formatting.text_size);
+                self.formatting.text_lines_ct = 2.0;
             }
             State::NewGame => {
                 self.main_menu();
                 self.secret_number = rand::thread_rng().gen_range(self.difficulty.min, self.difficulty.max);
+                self.formatting.text_lines_ct = 1.0;
+            }
+            State::Settings => {
+                self.settings_menu();
             }
             _ => {}
         }
@@ -266,9 +314,11 @@ impl event::EventHandler for GameState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         graphics::clear(ctx, BG.into());
 
+        self.formatting.text_block_size = self.formatting.text_size * self.formatting.text_lines_ct;
+
         let title_point = glam::Vec2::new(self.formatting.left_gutter, 0.0);
         let guess_point = glam::Vec2::new(self.formatting.left_gutter, self.formatting.title_size + self.formatting.margin);
-        let err_point = glam::Vec2::new(self.formatting.left_gutter, self.formatting.title_size + (self.formatting.margin * 2.0) + self.formatting.text_size);
+        let err_point = glam::Vec2::new(self.formatting.left_gutter, self.formatting.title_size + (self.formatting.margin * 2.0) + self.formatting.text_block_size);
 
         graphics::draw(ctx, &self.text.title, (title_point, ))?;
         graphics::draw(ctx, &self.text.output, (guess_point, ))?;
@@ -332,6 +382,17 @@ impl event::EventHandler for GameState {
                     _ => {}
                 }
             }
+            Some(Keypress::Tab) => {{
+                match self.state {
+                    State::NewGame | State::Win => {
+                        self.state = self.new_state(State::Settings);
+                    },
+                    State::Settings => {
+                        self.state = self.new_state(State::NewGame);
+                    }
+                    _ => {}
+                }
+            }}
             Some(Keypress::Negative) => {
                 self.negative = if self.difficulty.min < 0 {!self.negative} else {self.negative};
             }
