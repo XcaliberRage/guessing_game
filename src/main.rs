@@ -10,10 +10,13 @@ use std::env;
 use std::path;
 use rand::*;
 use std::fmt::{Display, Formatter, Result as fResult, Debug};
+use std::i32::MIN;
+use std::ops::Deref;
 
 const DEFAULT_MIN_NUM: i32 = 1;
 const DEFAULT_MAX_NUM: i32 = 100;
 const DEFAULT_MAX_LEN: usize = 3;
+const TRU_MAX: i32 = 999999999;
 
 struct Difficulty {
     min: i32,
@@ -51,6 +54,10 @@ struct GameText {
     err_content: String,
 }
 
+enum Setting {
+    Min,
+    Max,
+}
 
 struct GameState {
     frames: usize,
@@ -62,6 +69,7 @@ struct GameState {
     state: State,
     formatting: Formats,
     difficulty: Difficulty,
+    setting_code: Setting,
 }
 
 pub const BG: Colour = Colour {
@@ -88,6 +96,8 @@ enum Keypress {
     Undo,
     Negative,
     Tab,
+    LetterN,
+    LetterX,
 }
 
 impl Keypress {
@@ -96,18 +106,20 @@ impl Keypress {
             KeyCode::Return => Some(Keypress::Ret),
             KeyCode::Escape => Some(Keypress::Esc),
             KeyCode::Back => Some(Keypress::Undo),
-            KeyCode::Key0 => Some(Keypress::Zero),
-            KeyCode::Key1 => Some(Keypress::One),
-            KeyCode::Key2 => Some(Keypress::Two),
-            KeyCode::Key3 => Some(Keypress::Three),
-            KeyCode::Key4 => Some(Keypress::Four),
-            KeyCode::Key5 => Some(Keypress::Five),
-            KeyCode::Key6 => Some(Keypress::Six),
-            KeyCode::Key7 => Some(Keypress::Seven),
-            KeyCode::Key8 => Some(Keypress::Eight),
-            KeyCode::Key9 => Some(Keypress::Nine),
+            KeyCode::Key0 | KeyCode::Numpad0 => Some(Keypress::Zero),
+            KeyCode::Key1 | KeyCode::Numpad1 => Some(Keypress::One),
+            KeyCode::Key2 | KeyCode::Numpad2 => Some(Keypress::Two),
+            KeyCode::Key3 | KeyCode::Numpad3 => Some(Keypress::Three),
+            KeyCode::Key4 | KeyCode::Numpad4 => Some(Keypress::Four),
+            KeyCode::Key5 | KeyCode::Numpad5 => Some(Keypress::Five),
+            KeyCode::Key6 | KeyCode::Numpad6 => Some(Keypress::Six),
+            KeyCode::Key7 | KeyCode::Numpad7 => Some(Keypress::Seven),
+            KeyCode::Key8 | KeyCode::Numpad8 => Some(Keypress::Eight),
+            KeyCode::Key9 | KeyCode::Numpad9 => Some(Keypress::Nine),
             KeyCode::Minus => Some(Keypress::Negative),
             KeyCode::Tab => Some(Keypress::Tab),
+            KeyCode::N => Some(Keypress::LetterN),
+            KeyCode::X => Some(Keypress::LetterX),
             _ => None,
         }
     }
@@ -180,9 +192,10 @@ impl GameState {
             formatting: Formats::new(ctx).unwrap(),
             difficulty: Difficulty{
                 min: DEFAULT_MIN_NUM,
-                max: DEFAULT_MAX_NUM + 1,
+                max: DEFAULT_MAX_NUM,
                 len: DEFAULT_MAX_LEN
-            }
+            },
+            setting_code: Setting::Min,
         };
         Ok(s)
     }
@@ -198,6 +211,24 @@ impl GameState {
     }
 
     pub fn settings_menu(&mut self) {
+
+        if self.difficulty.min >= self.difficulty.max {
+            self.difficulty.min = self.difficulty.max-1;
+        }
+
+        let range = self.difficulty.max - self.difficulty.min;
+        let difficulty = match range {
+            i32::MIN..=0 => "INVALID",
+            1..=10 => "EXTREMELY EASY",
+            11..=100 => "VERY EASY",
+            101..=1000 => "EASY",
+            1001..=10000 => "NORMAL",
+            10001..=100000 => "HARD",
+            100001..=i32::MAX => "EXTREME",
+        };
+
+        self.difficulty.len = if self.difficulty.min.abs() > self.difficulty.max.abs() {self.difficulty.min.abs().to_string().len()} else {self.difficulty.max.abs().to_string().len()};
+
         self.text.title_content = "Settings >>".to_string();
         self.text.output_content = format!(
             "MI[N]       = {}    <<< Minimum value the number can be.\n\
@@ -206,15 +237,38 @@ impl GameState {
         RANGE       = {}    <<< Range between largest and lowest possible value.\n\
         DIFFICULTY  = {}",
                                            self.difficulty.min,
-                                           self.difficulty.max-1,
+                                           self.difficulty.max,
                                            self.difficulty.len,
                                            self.difficulty.max - self.difficulty.min,
-                                           "Easy"
+                                           difficulty.to_string()
         );
         self.formatting.text_lines_ct = 5.0;
         self.formatting.text_size = 16.0;
         self.text.err_content = format!("Press ESC to quit. press TAB to return to main menu.");
         self.make_text();
+    }
+
+    pub(crate) fn change_setting(&mut self, new_number: i32) {
+
+        let code = match self.setting_code {
+            Setting::Max => &mut self.difficulty.max,
+            _ => &mut self.difficulty.min,
+        };
+
+        let neg = *code < 0;
+
+        *code = if code.abs() < (TRU_MAX/10) - 9 { code.abs() * 10 + new_number } else { TRU_MAX };
+        *code *= if neg {-1} else {1};
+
+    }
+
+    pub fn swap_neg(&mut self) {
+        let code = match self.setting_code {
+            Setting::Max => &mut self.difficulty.max,
+            _ => &mut self.difficulty.min,
+        };
+
+        *code *= -1;
     }
 
     pub fn reset_guesses(&mut self) {
@@ -245,7 +299,10 @@ impl GameState {
                 self.guess = String::from(guess);
                 self.negative = false;
                 self.text.output = self.textify(String::from(guess), self.formatting.font, self.formatting.text_size);
-                self.text.title = self.textify("Type your guess below!".to_string(), self.formatting.font, self.formatting.title_size);
+                self.text.title = self.textify(format!("Type your guess below!")
+                                                   .to_string(),
+                                               self.formatting.font,
+                                               self.formatting.title_size);
             }
             State::Win => {
                 self.text.title = self.textify(format!("The number was {}.", self.secret_number), self.formatting.font, self.formatting.title_size);
@@ -254,7 +311,9 @@ impl GameState {
             }
             State::NewGame => {
                 self.main_menu();
-                self.secret_number = rand::thread_rng().gen_range(self.difficulty.min, self.difficulty.max);
+                self.secret_number = rand::thread_rng().gen_range(self.difficulty.min, self.difficulty.max+1);
+                println!("Setting new secret number between {} and {}...", self.difficulty.min, self.difficulty.max);
+                println!("The new number is: {}", self.secret_number);
                 self.formatting.text_lines_ct = 1.0;
             }
             State::Settings => {
@@ -305,6 +364,9 @@ impl event::EventHandler for GameState {
                 self.text.output = self.textify(guess_string_compiler(
                     &self.guess, self.negative), self.formatting.font , self.formatting.text_size);
             },
+            State::Settings => {
+                self.settings_menu();
+            }
             _ => {}
         }
 
@@ -337,6 +399,7 @@ impl event::EventHandler for GameState {
         _keymod: KeyMods,
         _repeat: bool,
     ) {
+
         // Helper function to stick a character on a string provided the value is not bigger than max
         // Replaces leading zeros too
         fn push_char( key: char, game: &mut GameState) {
@@ -356,13 +419,25 @@ impl event::EventHandler for GameState {
             game.guess = game.guess.clone().parse::<u32>().unwrap().to_string();
         }
 
-        match Keypress::from_keycode(keycode) {
+        dbg!("{}", keycode);
+        let key = Keypress::from_keycode(keycode);
+        match key {
             Some(Keypress::Esc) => {
                 println!("Thanks for playing!");
                 exit(0)
-            }
+            },
             Some(Keypress::Undo) => {
-                self.guess.pop();
+                match self.state {
+                    State::Guessing => {self.guess.pop();},
+                    State::Settings => {
+                        match self.setting_code {
+                            Setting::Max => self.difficulty.max /= 10,
+                            _ => self.difficulty.min /= 10,
+                        }
+                    }
+                    _ => {}
+                }
+
             }
             Some(Keypress::Ret) => {
                 match self.state {
@@ -387,26 +462,52 @@ impl event::EventHandler for GameState {
                     State::NewGame | State::Win => {
                         self.state = self.new_state(State::Settings);
                     },
-                    State::Settings => {
+                    State::Settings | State::Guessing => {
                         self.state = self.new_state(State::NewGame);
                     }
                     _ => {}
                 }
             }}
-            Some(Keypress::Negative) => {
-                self.negative = if self.difficulty.min < 0 {!self.negative} else {self.negative};
+            _ => {
+                match self.state {
+                    State::Guessing => {match key {
+                        Some(Keypress::Zero) => push_char('0', self ),
+                        Some(Keypress::One) => push_char('1', self ),
+                        Some(Keypress::Two) => push_char('2', self ),
+                        Some(Keypress::Three) => push_char('3', self ),
+                        Some(Keypress::Four) => push_char('4', self ),
+                        Some(Keypress::Five) => push_char('5', self ),
+                        Some(Keypress::Six) => push_char('6', self ),
+                        Some(Keypress::Seven) => push_char('7', self ),
+                        Some(Keypress::Eight) => push_char('8', self ),
+                        Some(Keypress::Nine) => push_char('9', self ),
+                        Some(Keypress::Negative) => {
+                            self.negative = if self.difficulty.min < 0 {!self.negative} else {self.negative};
+                        }
+                        _ => {}
+                    }},
+                    State::Settings => {match key {
+                        Some(Keypress::Zero) => self.change_setting(0),
+                        Some(Keypress::One) => self.change_setting(1),
+                        Some(Keypress::Two) => self.change_setting(2),
+                        Some(Keypress::Three) => self.change_setting(3),
+                        Some(Keypress::Four) => self.change_setting(4),
+                        Some(Keypress::Five) => self.change_setting(5),
+                        Some(Keypress::Six) => self.change_setting(6),
+                        Some(Keypress::Seven) => self.change_setting(7),
+                        Some(Keypress::Eight) => self.change_setting(8),
+                        Some(Keypress::Nine) => self.change_setting(9),
+                        Some(Keypress::LetterN) => self.setting_code = Setting::Min,
+                        Some(Keypress::LetterX) => self.setting_code = Setting::Max,
+                        Some(Keypress::Negative) => {
+                            self.swap_neg();
+                        }
+                        _ => {} }
+
+                    }
+                    _ => {}
+                }
             }
-            Some(Keypress::Zero) => push_char('0', self),
-            Some(Keypress::One) => push_char('1', self),
-            Some(Keypress::Two) => push_char('2', self),
-            Some(Keypress::Three) => push_char('3', self),
-            Some(Keypress::Four) => push_char('4', self),
-            Some(Keypress::Five) => push_char('5', self),
-            Some(Keypress::Six) => push_char('6', self),
-            Some(Keypress::Seven) => push_char('7',  self),
-            Some(Keypress::Eight) => push_char('8',  self),
-            Some(Keypress::Nine) => push_char('9',  self),
-            _ => {}
         }
 
         self.guess = match self.state {
